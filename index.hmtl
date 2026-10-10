@@ -1,0 +1,111 @@
+// Configuración de Firebase (Reemplaza con tus credenciales de la consola de Firebase)
+const firebaseConfig = {
+    apiKey: "TU_API_KEY",
+    authDomain: "tu-proyecto.firebaseapp.com",
+    databaseURL: "https://tu-proyecto-default-rtdb.firebaseio.com",
+    projectId: "tu-proyecto",
+    storageBucket: "tu-proyecto.appspot.com",
+    messagingSenderId: "tu-id",
+    appId: "tu-id"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+const TOTAL_BOLETOS = 100; // Puedes cambiarlo a 1000
+let numeroSeleccionado = null;
+
+const gridBoletos = document.getElementById('grid-boletos');
+const selectedInput = document.getElementById('selected-ticket');
+const displayTicket = document.getElementById('display-ticket');
+const btnReservar = document.getElementById('btn-reservar');
+const formTicket = document.getElementById('form-ticket');
+const buscador = document.getElementById('buscador');
+
+// Inicializar interfaz y escuchar cambios en tiempo real
+function inicializarRifa() {
+    gridBoletos.innerHTML = '';
+    
+    // Escuchar base de datos en tiempo real
+    db.ref('boletos').on('value', (snapshot) => {
+        const datosBoletos = snapshot.val() || {};
+        gridBoletos.innerHTML = '';
+
+        for (let i = 0; i < TOTAL_BOLETOS; i++) {
+            const numeroStr = String(i).padStart(3, '0'); // Ej: 000, 001
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'ticket';
+            btn.textContent = numeroStr;
+
+            if (datosBoletos[numeroStr]) {
+                btn.classList.add('ocupado');
+                btn.disabled = true;
+                btn.title = `Ocupado por ${datosBoletos[numeroStr].nombre}`;
+            } else {
+                btn.classList.add('disponible');
+                btn.onclick = () => seleccionarBoleto(numeroStr, btn);
+            }
+
+            gridBoletos.appendChild(btn);
+        }
+    });
+}
+
+function seleccionarBoleto(numero, elemento) {
+    document.querySelectorAll('.ticket').forEach(t => {
+        if(!t.classList.contains('ocupado')) t.classList.remove('seleccionado');
+    });
+    
+    elemento.classList.add('seleccionado');
+    numeroSeleccionado = numero;
+    selectedInput.value = numero;
+    displayTicket.textContent = `#${numero}`;
+    btnReservar.disabled = false;
+}
+
+// Manejar el registro del boleto
+formTicket.onsubmit = (e) => {
+    e.preventDefault();
+    if (!numeroSeleccionado) return;
+
+    const nombre = document.getElementById('nombre').value.trim();
+    const telefono = document.getElementById('telefono').value.trim();
+
+    const boletoRef = db.ref(`boletos/${numeroSeleccionado}`);
+    
+    // Transacción atómica para evitar que dos usuarios elijan el mismo número al mismo tiempo
+    boletoRef.transaction((currentData) => {
+        if (currentData === null) {
+            return { nombre, telefono, fecha: Date.now() };
+        } else {
+            return; // Ya está ocupado, abortar transacción
+        }
+    }, (error, committed) => {
+        if (error) {
+            alert("Error al procesar la reserva. Intente de nuevo.");
+        } else if (!committed) {
+            alert("¡Lo siento! Este número acaba de ser seleccionado por otra persona.");
+        } else {
+            alert(`¡Boleto #${numeroSeleccionado} apartado con éxito! Sigue las instrucciones de pago.`);
+            formTicket.reset();
+            displayTicket.textContent = "Ninguno";
+            btnReservar.disabled = true;
+            numeroSeleccionado = null;
+        }
+    });
+};
+
+// Filtrar números en el buscador
+buscador.oninput = (e) => {
+    const filtro = e.target.value;
+    document.querySelectorAll('.ticket').forEach(btn => {
+        if (btn.textContent.includes(filtro)) {
+            btn.style.display = 'block';
+        } else {
+            btn.style.display = 'none';
+        }
+    });
+};
+
+window.onload = inicializarRifa;
